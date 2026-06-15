@@ -267,9 +267,18 @@ if __name__ == "__main__":
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
+
+    # add densification parameters
+    parser.add_argument("--exp_name", type=str, default = "base")
+    ############################# 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
-    
+
+    # args.source_path is expected to be of the form "path/to/input/(<dataset_name>/<scene_name> or <scene_name>)/3dgs"
+    source_path_list = args.source_path.split("/")
+    input_idx = source_path_list.index("input")
+    after_input = "-".join(source_path_list[input_idx + 1:-1]) # dataset_path_list[-1]は3dgsディレクトリのため除く
+    args.model_path = os.path.join("output", after_input, args.exp_name)
     print("Optimizing " + args.model_path)
 
     # Initialize system state (RNG)
