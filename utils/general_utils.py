@@ -118,7 +118,7 @@ def safe_state(silent):
         def write(self, x):
             if not self.silent:
                 if x.endswith("\n"):
-                    old_f.write(x.replace("\n", " [{}]\n".format(str(datetime.now().strftime("%d/%m %H:%M:%S")))))
+                    old_f.write(x.replace("\n", " [{}]\n".format(str(datetime.now().strftime("%y/%m/%d %H:%M:%S")))))
                 else:
                     old_f.write(x)
 
@@ -131,3 +131,56 @@ def safe_state(silent):
     np.random.seed(0)
     torch.manual_seed(0)
     torch.cuda.set_device(torch.device("cuda:0"))
+
+    return None
+
+def safe_state_v2(silent, log_filepath):
+    """
+    this function has safe_state function and write contents of print function to log file.
+    silent:args.quiet (that decide to output cosole log or not)
+    log_filepath: if args.log_file_name was not sorted, value is None. 
+    """
+    old_f = sys.stdout
+
+    class F:
+        def __init__(self, silent, log_file):
+            self.silent = silent
+            self.log_file = log_file
+
+        def write(self, x):
+            timestamp = " [{}]".format(datetime.now().strftime("%y/%m/%d %H:%M:%S"))
+            if not self.silent:
+                # コンソールに出力
+                if x.endswith("\n"):
+                    old_f.write(x.replace("\n", timestamp + "\n"))
+                    self.log_file.write(x.replace("\n", timestamp + "\n"))
+                else:
+                    old_f.write(x)
+                    self.log_file.write(x)
+                    
+
+        def flush(self):
+            old_f.flush()
+            self.log_file.flush()
+
+    # ログファイルを開く
+    log_file = open(log_filepath, "w", encoding="utf-8")
+    print(f"Write log to {log_filepath}")
+    
+    sys.stdout = F(silent, log_file)
+
+    # 乱数シードの初期化
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
+    torch.cuda.set_device(torch.device("cuda:0"))
+
+    # ファイルのクローズを忘れないようにする
+    # def close_log_file():
+    #     sys.stdout.log_file.close()
+    def close_log_file():
+        sys.stdout = old_f  # ← 標準出力を元に戻す
+        if log_file:
+            log_file.close()
+        
+    return close_log_file

@@ -16,7 +16,7 @@ from utils.loss_utils import l1_loss, ssim
 from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
-from utils.general_utils import safe_state, get_expon_lr_func
+from utils.general_utils import safe_state, safe_state_v2, get_expon_lr_func
 import uuid
 from tqdm import tqdm
 from utils.image_utils import psnr
@@ -270,6 +270,7 @@ if __name__ == "__main__":
 
     # add densification parameters
     parser.add_argument("--exp_name", type=str, default = "base")
+    parser.add_argument("--log_file_name", type=str, default=None)
     ############################# 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
@@ -280,9 +281,14 @@ if __name__ == "__main__":
     after_input = "-".join(source_path_list[input_idx + 1:-1]) # dataset_path_list[-1]は3dgsディレクトリのため除く
     args.model_path = os.path.join("output", after_input, args.exp_name)
     print("Optimizing " + args.model_path)
-
+    os.makedirs(args.model_path, exist_ok = True)
+    
     # Initialize system state (RNG)
-    safe_state(args.quiet)
+    if args.log_file_name:
+        log_filepath = os.path.join(args.model_path, args.log_file_name)
+        close_log = safe_state_v2(args.quiet, log_filepath)
+    else:
+        close_log = safe_state(args.quiet)
 
     # Start GUI server, configure and run training
     if not args.disable_viewer:
@@ -292,3 +298,7 @@ if __name__ == "__main__":
 
     # All done
     print("\nTraining complete.")
+
+    if close_log:
+        close_log()
+        print("close")
