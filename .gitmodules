@@ -11,3 +11,6 @@
 [submodule "submodules/fused-ssim"]
 	path = submodules/fused-ssim
 	url = https://github.com/rahul-goel/fused-ssim.git
+[submodule "submodules/Pytorch-diff-gaussian-rasterization"]
+	path = submodules/Pytorch-diff-gaussian-rasterization
+	url = https://github.com/c0b2116145/Pytorch-diff-gaussian-rasterization.git
