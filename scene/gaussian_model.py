@@ -30,6 +30,10 @@ except:
 class GaussianModel:
 
     def setup_functions(self):
+        """各パラメータを実値へ変換する活性化関数を設定する。
+
+        使用箇所: `__init__` から呼ばれ、スケール・回転・不透明度・共分散の取得や更新で使用される。
+        """
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
             L = build_scaling_rotation(scaling_modifier * scaling, rotation)
             actual_covariance = L @ L.transpose(1, 2)
@@ -48,6 +52,10 @@ class GaussianModel:
 
 
     def __init__(self, sh_degree, optimizer_type="default"):
+        """空の Gaussian パラメータ群と学習状態を初期化する。
+
+        使用箇所: `train.py:training` と `render.py:render_sets` でモデルを生成する際に呼ばれる。
+        """
         self.active_sh_degree = 0
         self.optimizer_type = optimizer_type
         self.max_sh_degree = sh_degree  
@@ -66,6 +74,10 @@ class GaussianModel:
         self.setup_functions()
 
     def capture(self):
+        """学習再開に必要なモデルと Optimizer の状態をタプルとして返す。
+
+        使用箇所: `train.py:training` のチェックポイント保存時に呼ばれ、保存値は `restore` で復元される。
+        """
         return (
             self.active_sh_degree,
             self._xyz,
@@ -82,6 +94,10 @@ class GaussianModel:
         )
     
     def restore(self, model_args, training_args):
+        """チェックポイントからモデルと学習状態を復元する。
+
+        使用箇所: `train.py:training` でチェックポイントが指定された場合に呼ばれる。
+        """
         (self.active_sh_degree, 
         self._xyz, 
         self._features_dc, 
@@ -101,52 +117,100 @@ class GaussianModel:
 
     @property
     def get_scaling(self):
+        """対数空間の内部スケールを正の実スケールへ変換して返す。
+
+        使用箇所: `gaussian_renderer.render` と、共分散計算・分割・複製・枝刈り処理で使用される。
+        """
         return self.scaling_activation(self._scaling)
     
     @property
     def get_rotation(self):
+        """内部の四元数を正規化し、Gaussian の回転として返す。
+
+        使用箇所: `gaussian_renderer.render` からラスタライザへ回転を渡す際に使用される。
+        """
         return self.rotation_activation(self._rotation)
     
     @property
     def get_xyz(self):
+        """全 Gaussian の三次元中心座標を返す。
+
+        使用箇所: `gaussian_renderer.render` と、初期化・学習設定・densification 処理で使用される。
+        """
         return self._xyz
     
     @property
     def get_features(self):
+        """DC 成分と高次成分を結合した球面調和関数（SH）特徴量を返す。
+
+        使用箇所: `gaussian_renderer.render` で色を計算するか、SH 特徴をラスタライザへ渡す際に使用される。
+        """
         features_dc = self._features_dc
         features_rest = self._features_rest
         return torch.cat((features_dc, features_rest), dim=1)
     
     @property
     def get_features_dc(self):
+        """SH 特徴量の DC（0 次）成分を返す。
+
+        使用箇所: `gaussian_renderer.render` で `separate_sh=True` の場合に使用される。
+        """
         return self._features_dc
     
     @property
     def get_features_rest(self):
+        """SH 特徴量の DC 以外の高次成分を返す。
+
+        使用箇所: `gaussian_renderer.render` で `separate_sh=True` の場合に使用される。
+        """
         return self._features_rest
     
     @property
     def get_opacity(self):
+        """内部の logit 値を 0〜1 の不透明度へ変換して返す。
+
+        使用箇所: `gaussian_renderer.render`、`reset_opacity`、`densify_and_prune` で使用される。
+        """
         return self.opacity_activation(self._opacity)
     
     @property
     def get_exposure(self):
+        """学習対象のカメラ別露出変換行列を返す。
+
+        使用箇所: 露出値への直接アクセス用で、画像名による取得には `get_exposure_from_name` が使用される。
+        """
         return self._exposure
 
     def get_exposure_from_name(self, image_name):
+        """画像名に対応する露出変換行列を返す。
+
+        使用箇所: `scene.Scene.save` と `gaussian_renderer.render` の露出補正で使用される。
+        """
         if self.pretrained_exposures is None:
             return self._exposure[self.exposure_mapping[image_name]]
         else:
             return self.pretrained_exposures[image_name]
     
     def get_covariance(self, scaling_modifier = 1):
+        """スケールと回転から対称な三次元共分散を計算して返す。
+
+        使用箇所: `gaussian_renderer.render` で `compute_cov3D_python=True` の場合に使用される。
+        """
         return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
 
     def oneupSHdegree(self):
+        """レンダリングに使用する SH の有効次数を上限まで 1 段階増やす。
+
+        使用箇所: `train.py:training` から 1000 iteration ごとに呼ばれる。
+        """
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
 
     def create_from_pcd(self, pcd : BasicPointCloud, cam_infos : int, spatial_lr_scale : float):
+        """入力点群から学習可能な Gaussian 群とカメラ別露出を初期化する。
+
+        使用箇所: 学習済みモデルを使わない場合に `scene.Scene.__init__` から呼ばれる。
+        """
         self.spatial_lr_scale = spatial_lr_scale
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
         fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
@@ -176,6 +240,10 @@ class GaussianModel:
         self._exposure = nn.Parameter(exposure.requires_grad_(True))
 
     def training_setup(self, training_args):
+        """Optimizer、学習率スケジューラ、densification 統計を準備する。
+
+        使用箇所: `train.py:training` の学習開始時と、チェックポイントを復元する `restore` から呼ばれる。
+        """
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -211,7 +279,10 @@ class GaussianModel:
                                                         max_steps=training_args.iterations)
 
     def update_learning_rate(self, iteration):
-        ''' Learning rate scheduling per step '''
+        """現在の iteration に合わせて位置と露出の学習率を更新する。
+
+        使用箇所: `train.py:training` の各 iteration 冒頭で呼ばれる。
+        """
         if self.pretrained_exposures is None:
             for param_group in self.exposure_optimizer.param_groups:
                 param_group['lr'] = self.exposure_scheduler_args(iteration)
@@ -223,6 +294,10 @@ class GaussianModel:
                 return lr
 
     def construct_list_of_attributes(self):
+        """PLY の頂点要素へ保存する属性名をテンソル形状から生成する。
+
+        使用箇所: `save_ply` から NumPy 構造化 dtype のフィールドを作るために呼ばれる。
+        """
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
         # All channels except the 3 DC
         for i in range(self._features_dc.shape[1]*self._features_dc.shape[2]):
@@ -237,6 +312,10 @@ class GaussianModel:
         return l
 
     def save_ply(self, path):
+        """現在の Gaussian パラメータ群を PLY ファイルへ保存する。
+
+        使用箇所: `scene.Scene.save` から指定 iteration の点群を保存する際に呼ばれる。
+        """
         mkdir_p(os.path.dirname(path))
 
         xyz = self._xyz.detach().cpu().numpy()
@@ -256,11 +335,19 @@ class GaussianModel:
         PlyData([el]).write(path)
 
     def reset_opacity(self):
+        """全 Gaussian の不透明度を最大 0.01 に抑え、Optimizer へ再登録する。
+
+        使用箇所: `train.py:training` から一定間隔で呼ばれ、その後の構造最適化を促す。
+        """
         opacities_new = self.inverse_opacity_activation(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 
     def load_ply(self, path, use_train_test_exp = False):
+        """PLY から学習済み Gaussian と、必要に応じて露出情報を読み込む。
+
+        使用箇所: `scene.Scene.__init__` から保存済み iteration をロードする際に呼ばれ、`render.py` の推論でも使用される。
+        """
         plydata = PlyData.read(path)
         if use_train_test_exp:
             exposure_file = os.path.join(os.path.dirname(path), os.pardir, os.pardir, "exposure.json")
@@ -314,6 +401,10 @@ class GaussianModel:
         self.active_sh_degree = self.max_sh_degree
 
     def replace_tensor_to_optimizer(self, tensor, name):
+        """指定パラメータを新しいテンソルへ置換し、Optimizer 状態を初期化する。
+
+        使用箇所: `reset_opacity` から不透明度を差し替えるために呼ばれる内部ヘルパー。
+        """
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
             if group["name"] == name:
@@ -329,6 +420,10 @@ class GaussianModel:
         return optimizable_tensors
 
     def _prune_optimizer(self, mask):
+        """保持マスクに従って全パラメータと Optimizer 状態を縮小する。
+
+        使用箇所: `prune_points` からのみ呼ばれ、Gaussian と Adam の移動平均の対応を維持する。
+        """
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
             stored_state = self.optimizer.state.get(group['params'][0], None)
@@ -347,6 +442,10 @@ class GaussianModel:
         return optimizable_tensors
 
     def prune_points(self, mask):
+        """削除マスクが真の Gaussian をモデルと学習統計から除去する。
+
+        使用箇所: `densify_and_split` と `densify_and_prune` から呼ばれる。
+        """
         valid_points_mask = ~mask
         optimizable_tensors = self._prune_optimizer(valid_points_mask)
 
@@ -364,6 +463,10 @@ class GaussianModel:
         self.tmp_radii = self.tmp_radii[valid_points_mask]
 
     def cat_tensors_to_optimizer(self, tensors_dict):
+        """新しい Gaussian 群を各パラメータと Optimizer 状態の末尾へ追加する。
+
+        使用箇所: `densification_postfix` からのみ呼ばれ、Adam の移動平均もゼロで拡張する。
+        """
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
             assert len(group["params"]) == 1
@@ -386,6 +489,10 @@ class GaussianModel:
         return optimizable_tensors
 
     def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii):
+        """生成した Gaussian 群を追加し、densification 用統計を再初期化する。
+
+        使用箇所: `densify_and_clone` と `densify_and_split` から呼ばれる共通の後処理。
+        """
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
@@ -407,6 +514,10 @@ class GaussianModel:
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
     def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
+        """勾配が大きくサイズも大きい Gaussian を複数の小さな Gaussian に分割する。
+
+        使用箇所: `densify_and_prune` から呼ばれ、子 Gaussian の追加後に分割元を削除する。
+        """
         n_init_points = self.get_xyz.shape[0]
         # Extract points that satisfy the gradient condition
         padded_grad = torch.zeros((n_init_points), device="cuda")
@@ -433,6 +544,10 @@ class GaussianModel:
         self.prune_points(prune_filter)
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent):
+        """勾配が大きくサイズが小さい Gaussian を同じパラメータで複製する。
+
+        使用箇所: `densify_and_prune` から呼ばれ、細部を表現する Gaussian 数を増やす。
+        """
         # Extract points that satisfy the gradient condition
         selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
         selected_pts_mask = torch.logical_and(selected_pts_mask,
@@ -450,6 +565,10 @@ class GaussianModel:
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii)
 
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii):
+        """勾配に基づく複製・分割と、不要な Gaussian の枝刈りをまとめて行う。
+
+        使用箇所: `train.py:training` から densification interval ごとに呼ばれる。
+        """
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
 
@@ -469,5 +588,9 @@ class GaussianModel:
         torch.cuda.empty_cache()
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
+        """可視 Gaussian のスクリーン空間位置勾配を densification 統計へ加算する。
+
+        使用箇所: `train.py:training` で逆伝播後に呼ばれ、複製・分割対象の選択に使用される。
+        """
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
