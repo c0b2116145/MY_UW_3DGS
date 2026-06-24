@@ -11,9 +11,52 @@
 
 import torch
 import math
-from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+_RASTERIZER_BACKEND = os.environ.get("GAUSSIAN_RASTERIZER", "torch").lower()
+
+if _RASTERIZER_BACKEND == "cuda":
+    from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+elif _RASTERIZER_BACKEND == "torch":
+    # Load the local implementation under a unique name. Merely prepending its
+    # directory to sys.path is insufficient when the pip package was imported first.
+    _TORCH_RASTERIZER_ROOT = (
+        Path(__file__).resolve().parents[1]
+        / "submodules"
+        / "Pytorch-diff-gaussian-rasterization"
+    )
+    if str(_TORCH_RASTERIZER_ROOT) not in sys.path:
+        sys.path.insert(0, str(_TORCH_RASTERIZER_ROOT))
+
+    _MODULE_NAME = "_pytorch_diff_gaussian_rasterization"
+    _rasterizer_module = sys.modules.get(_MODULE_NAME)
+    if _rasterizer_module is None:
+        _module_path = _TORCH_RASTERIZER_ROOT / "diff_gaussian_rasterization" / "__init__.py"
+        _spec = importlib.util.spec_from_file_location(_MODULE_NAME, _module_path)
+        if _spec is None or _spec.loader is None:
+            raise ImportError(f"Could not load PyTorch rasterizer from {_module_path}")
+        _rasterizer_module = importlib.util.module_from_spec(_spec)
+        sys.modules[_MODULE_NAME] = _rasterizer_module
+        try:
+            _spec.loader.exec_module(_rasterizer_module)
+        except Exception:
+            sys.modules.pop(_MODULE_NAME, None)
+            raise
+
+    GaussianRasterizationSettings = _rasterizer_module.GaussianRasterizationSettings
+    GaussianRasterizer = _rasterizer_module.GaussianRasterizer
+else:
+    raise ValueError(
+        f"Unknown GAUSSIAN_RASTERIZER={_RASTERIZER_BACKEND!r}; expected torch or cuda"
+    )
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
+import inspect
+print("定義モジュール:", GaussianRasterizationSettings.__module__)
+print("定義ファイル:", inspect.getsourcefile(GaussianRasterizationSettings))
 
 def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, separate_sh = False, override_color = None, use_trained_exp=False):
     """
